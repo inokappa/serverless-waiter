@@ -1,0 +1,90 @@
+service: serverless-waiter
+provider:
+  name: aws
+  runtime: ruby2.5
+  stage: dev
+  region: ap-northeast-1
+  environment:
+    SLACK_ENCRYPTED_URL: ""
+    SLACK_ICON_EMOJI: ""
+    QUEUE_URL:
+        Ref: WaiterQueue
+  iamRoleStatements:
+    - Effect: "Allow"
+      Action:
+        - "kms:Decrypt"
+      Resource:
+        - "arn:aws:kms:ap-northeast-1:*:key/*"
+    - Effect: "Allow"
+      Action:
+        - "s3:*"
+      Resource:
+        - "*"
+    - Effect: "Allow"
+      Action:
+       - "sqs:*"
+      Resource:
+        - "*"
+
+package:
+  include:
+    - serverless.yml
+    - cloner.rb 
+    - waiter.rb 
+    - libs/**
+  exclude:
+    - .envrc
+    - .git/**
+    - vendor/**
+    - doc/**
+    - docs/**
+    - test/**
+    - Rakefile
+    - test.json
+    - Gemfile
+    - Gemfile.lock
+
+functions:
+  invoker:
+    handler: invoker.run
+    memorySize: 128
+    timeout: 300
+    description: Invoker
+    events:
+      - s3:
+          bucket: serverless-waiting
+          event: s3:ObjectCreated:*
+    environment:
+      SLACK_USERNAME: "Serverless Waiter Invoker"
+  waiter:
+    handler: waiter.run
+    memorySize: 128
+    timeout: 300
+    description: Waiter
+    events:
+      - sqs: 
+          arn:
+            Fn::GetAtt:
+              - WaiterQueue
+              - Arn
+    environment:
+      SLACK_USERNAME: "Serverless Waiter Waiter"
+      WAIT_COUNT: 5
+      QUEUE_URL:
+        Ref: WaiterQueue
+    reservedConcurrency: 1
+
+resources:
+  Resources:
+    InvokerLogGroup:
+      Properties:
+        RetentionInDays: "3"
+    WaiterLogGroup:
+      Properties:
+        RetentionInDays: "3"
+    WaiterQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: serverless-waiting
+        ReceiveMessageWaitTimeSeconds: 5
+        VisibilityTimeout: 600
